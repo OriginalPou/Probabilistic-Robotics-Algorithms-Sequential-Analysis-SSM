@@ -11,12 +11,15 @@ import numpy as np
 
 
 class Particle():
-    def __init__(self):
+    def __init__(self, particle_idx):
         # Robot state: [timestamp, x, y, 0]
         self.timestamp = 0.0
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
+
+        # particle_idx, helps track particles during multiprocessing operations
+        self.particle_idx = particle_idx
 
         # Weight
         self.weight = 1.0

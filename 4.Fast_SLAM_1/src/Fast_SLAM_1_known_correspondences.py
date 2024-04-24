@@ -175,10 +175,12 @@ class FastSLAM1():
                     landmark_update(particle, measurement, landmark_idx)
 
         # Normalize all weights
-        self.weights_normalization()
+        
 
         # Resample all particles according to the weights
-        self.importance_sampling()
+        if self.neff()<0.5:
+            self.weights_normalization()
+            self.importance_sampling()
 
     def weights_normalization(self):
         '''
@@ -202,6 +204,14 @@ class FastSLAM1():
 
         for particle in self.particles:
             particle.weight /= sum
+
+    def neff(self):
+        # Compute sum of the weights
+        sum = 0.0
+        for particle in self.particles:
+            sum += particle.weight**2
+        
+        return 1. / sum
 
     def importance_sampling(self):
         '''
@@ -275,16 +285,66 @@ class FastSLAM1():
 
         self.landmark_states = landmark_states
 
-    def plot_data(self):
+    def state_update(self, particles, weights):
+        '''
+        Update the robot and landmark states by taking average among all
+        particles.
+        This version makes a weighted average of the particles state estimates
+
+        Input:
+            particles : a list of particles from the SMC algorithm.
+            weights : a np array of the normalized weights from the SMC algorithm
+        Output:
+            None.
+        '''
+        # Robot state
+        timestamp = particles[0].timestamp
+        x = 0.0
+        y = 0.0
+        theta = 0.0
+        self.N_particles = len(particles)
+        self.N_landmarks = len(self.landmark_states)
+
+        for i in range(len(particles)):
+            x += particles[i].x * weights[i]
+            y += particles[i].y * weights[i]
+            theta += particles[i].theta * weights[i]
+
+        self.states = np.append(self.states,
+                                np.array([[timestamp, x, y, theta]]), axis=0)
+
+        # Landmark state
+        landmark_states = np.zeros((self.N_landmarks, 2))
+        count = np.zeros(self.N_landmarks)
+        self.landmark_observed = np.full(self.N_landmarks, False)
+
+        for i in range(len(particles)):
+            for landmark_idx in range(self.N_landmarks):
+                if particles[i].lm_ob[landmark_idx]:
+                    landmark_states[landmark_idx] +=\
+                        particles[i].lm_mean[landmark_idx] * weights[i]
+                    #count[landmark_idx] += 1
+                    self.landmark_observed[landmark_idx] = True
+
+        # for landmark_idx in range(self.N_landmarks):
+        #     if self.landmark_observed[landmark_idx]:
+        #         landmark_states[landmark_idx] /= count[landmark_idx]
+
+        self.landmark_states = landmark_states
+
+
+    def plot_data(self, particles = None):
         '''
         Plot all data through matplotlib.
         Conduct animation as the algorithm runs.
 
         Input:
-            None.
+            particles : in case the SMC algorithm is the one runnign
         Output:
             None.
         '''
+        if not particles is None :
+            self.particles = particles
         # Clear all
         plt.cla()
 
@@ -344,3 +404,4 @@ class FastSLAM1():
 
 if __name__ == "__main__":
     pass
+    

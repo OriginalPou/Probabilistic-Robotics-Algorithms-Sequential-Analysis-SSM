@@ -106,7 +106,7 @@ class MeasurementModel():
             landmark_idx: the index of the landmark (0 ~ 15).
             weight: the default importance factor for a new feature.
         Output:
-            None.
+            particle
         '''
         # Update landmark mean by inverse measurement model
         particle.lm_mean[landmark_idx] =\
@@ -123,10 +123,11 @@ class MeasurementModel():
         particle.lm_ob[landmark_idx] = True
 
         # Assign default importance weight
-        particle.weight = weight
+        # particle.weight = weight
 
         # Update timestamp
-        particle.timestamp = measurement[0]
+        # particle.timestamp = measurement[0]
+        return particle
 
     def landmark_update(self, particle, measurement, landmark_idx):
         '''
@@ -142,7 +143,7 @@ class MeasurementModel():
                          [timestamp, #landmark, range, bearing]
             landmark_idx: the index of the landmark (0 ~ 15).
         Output:
-            None.
+            particle.
         '''
         # Compute expected measurement
         range_expected, bearing_expected =\
@@ -171,7 +172,8 @@ class MeasurementModel():
                    dot(difference))[0, 0]
 
         # Update timestamp
-        particle.timestamp = measurement[0]
+        # particle.timestamp = measurement[0]
+        return (particle)
 
     def compute_correspondence(self, particle, measurement, landmark_idx):
         '''
