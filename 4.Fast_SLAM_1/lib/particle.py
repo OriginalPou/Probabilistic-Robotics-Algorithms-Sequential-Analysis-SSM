@@ -11,7 +11,7 @@ import numpy as np
 
 
 class Particle():
-    def __init__(self, particle_idx):
+    def __init__(self, particle_idx = 0):
         # Robot state: [timestamp, x, y, 0]
         self.timestamp = 0.0
         self.x = 0.0

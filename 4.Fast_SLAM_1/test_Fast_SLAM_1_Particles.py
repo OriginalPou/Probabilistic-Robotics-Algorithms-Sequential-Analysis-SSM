@@ -23,35 +23,42 @@ import seaborn as sb
 if __name__ == '__main__':
     my_model = fastSLAM_SSM()
     fk_model = fastSLAM_FK(ssm=my_model)
-    pf = fastSLAM_SMC(fk = fk_model, resampling='stratified', n_proc= 1,
-                   collect=[Moments()], store_history=True, verbose=True)  # the algorithm)
+    pf = fastSLAM_SMC(fk = fk_model, n_proc= 1,
+                  collect=[Moments()], store_history=True, verbose=False)  # the algorithm)
+#%%
     # run the particle filter
+    pf.next()
     pf.run()
 
 #%%
-    prior_dict = {'sigma_x':dists.Uniform(a=0., b=1),
-                    'sigma_y':dists.Uniform(a=0., b=1),
-                    'sigma_theta':dists.Uniform(a=0., b=1),
-                    'sigma_v': dists.Uniform(a=0., b=1), 
-                    'sigma_w': dists.Uniform(a=0., b=1),
-                    'gamma': dists.Uniform(a=0., b=1), 
-                    'sigma_range': dists.Uniform(a=0., b=1), 
-                    'sigma_bearing': dists.Uniform(a=0., b=1),
-                    'bias_v' : dists.Normal(scale=0.05),
-                    'bias_w' : dists.Normal(scale=0.05),}
+    prior_dict = {  'sigma_v': dists.Uniform(a=0., b=0.5), 
+                    'sigma_w': dists.Uniform(a=0., b=0.5),
+                    'gamma': dists.Uniform(a=0., b=0.5), 
+                    'sigma_range': dists.Uniform(a=0., b=0.5), 
+                    'sigma_bearing': dists.Uniform(a=0., b=0.5),
+                    }
     
     my_prior = dists.StructDist(prior_dict)
 
 #%%
-    pmmh = mcmc.PMMH(ssm_cls=fastSLAM_SSM, smc_cls= fastSLAM_SMC, fk_cls= fastSLAM_FK, prior=my_prior, data=None, Nx=100, niter = 1000, verbose= 1)
-    pmmh.run()  # Warning: takes a few seconds
+    # pmmh = mcmc.PMMH(ssm_cls=fastSLAM_SSM, smc_cls= fastSLAM_SMC, fk_cls= fastSLAM_FK, prior=my_prior, data=None, Nx=100, niter = 1000, verbose= 1)
+    # pmmh.run()  # Warning: takes a few seconds
+
+#%%
+    fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=100,
+                   ar_to_increase_Nx=0.1, len_chain= 10)
+    results_smc2 = particles.multiSMC(fk=fk_smc2, N=50, nruns=15, verbose = True)
+    #plt.figure()
+    #sb.boxplot(x=[r['output'].logLt for r in results_smc2], y=[r['qmc'] for r in results_smc2]);
+
 #%% 
 
-    fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=30,
-                   ar_to_increase_Nx=0.1)
-    alg_smc2 = particles.SMC(fk=fk_smc2, N=200, verbose= True)
+    fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=200,
+                   ar_to_increase_Nx=-0.1, len_chain= 10)
+    alg_smc2 = particles.SMC(fk=fk_smc2, N=50, verbose= True)
     alg_smc2.run()
 
+#%%
     i = 0
     another_theta = my_prior.rvs(size=1000)
     for p in prior_dict.keys():
@@ -62,5 +69,6 @@ if __name__ == '__main__':
         sb.distplot(another_theta[p], 40)
         plt.xlabel(p)
         i += 1
+    plt.show()
 
 # %%

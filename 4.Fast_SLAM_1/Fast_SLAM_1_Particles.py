@@ -35,9 +35,9 @@ class fastSLAM_SSM(ssm.StateSpaceModel):
                                 'bias_v': -0.0, 'bias_w':0.0} 
     @staticmethod
     def create_fast_slam():
-        dataset = "0.Dataset1"
+        dataset = "0.Dataset0"
         start_frame = 800
-        end_frame = 3200
+        end_frame = 40000
         ## Initialize FastSLAM1 object and load data
         fast_slam = FastSLAM1(None, None)
         # load data
@@ -146,14 +146,12 @@ class fastSLAM_FK(ssm.Bootstrap):
         noisy_control_dist, delta_t = self.ssm.POdom(t)
         if not(noisy_control_dist is None):
             noisy_control = noisy_control_dist.rvs(size = xp.shape[0])
-            for i in range(xp.shape[0]):
-                # get noisy odom
-                v = noisy_control[i][0] + self.ssm.bias_v
-                w = noisy_control[i][1] + self.ssm.bias_w
-                gamma = noisy_control[i][2]
-                xp[i][0] = xp[i][0] - v/w * np.sin(xp[i][2]) + v/w * np.sin(xp[i][2] + w * delta_t) # x coordinate
-                xp[i][1] = xp[i][1] + v/w * np.cos(xp[i][2]) - v/w * np.cos(xp[i][2] + w * delta_t) # y coordinate
-                xp[i][2] += w * delta_t + gamma * delta_t # theta
+            v = noisy_control[:,0] + self.ssm.bias_v
+            w = noisy_control[:,1] + self.ssm.bias_w
+            gamma = noisy_control[:,2]
+            xp[:,0] = xp[:,0] - v/w * np.sin(xp[:,2]) + v/w * np.sin(xp[:,2] + w * delta_t) # x coordinate
+            xp[:,1] = xp[:,1] + v/w * np.cos(xp[:,2]) - v/w * np.cos(xp[:,2] + w * delta_t) # y coordinate
+            xp[:,2] += w * delta_t + gamma * delta_t # theta
         return xp
 
     def logG(self, t, xp, x):
@@ -177,7 +175,7 @@ class fastSLAM_FK(ssm.Bootstrap):
                 else:
                     x_ev[i] = measurement_model.\
                         landmark_update(x_ev[i], measurement, landmark_idx)
-                    inc_lw[i] = x_ev[i].weight + 10**(-10)
+                    inc_lw[i] = x_ev[i].weight + 10**(-300)
             inc_lw = np.log(inc_lw)
         # multiprocessing
         elif not(measurement_model is None):
@@ -301,8 +299,8 @@ class fastSLAM_SMC(particles.SMC):
         self.t += 1
         if self.verbose :
             # plot the estimated trajectory and position of landmarks
-            self.fk.ssm.fast_slam.state_update(self.X_ev, self.wgts.W)
-            if (len(self.fk.ssm.fast_slam.states) % 20 == 0):
+            self.fk.ssm.fast_slam.state_update_(self.X_ev, self.wgts.W)
+            if (len(self.fk.ssm.fast_slam.states) % 100 == 0):
                 self.fk.ssm.fast_slam.plot_data(self.X_ev)
 
 
@@ -324,7 +322,7 @@ class fastSLAM_SMC2(ssp.SMC2):
 
     @property
     def T(self):
-        return (100)
+        return (len(self.ssm_cls._fast_slam.data))
     
     def alg_instance(self, theta, N):
         return fastSLAM_SMC(

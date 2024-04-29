@@ -18,9 +18,9 @@ from src.Fast_SLAM_1_known_correspondences import FastSLAM1
 
 if __name__ == '__main__':
     # Dataset info
-    dataset = "../0.Dataset1"
+    dataset = "0.Dataset1"
     start_frame = 800
-    end_frame = 3200
+    end_frame = 40000
 
     # Initialize Motion Model object
     # Motion noise (in meters / rad)
@@ -50,6 +50,6 @@ if __name__ == '__main__':
             fast_slam.landmark_update(data)
         fast_slam.state_update()
         # Plot every n frames
-        if (len(fast_slam.states) % 20 == 0):
+        if (len(fast_slam.states) % 200 == 0):
             fast_slam.plot_data()
     plt.show()

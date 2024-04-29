@@ -285,7 +285,7 @@ class FastSLAM1():
 
         self.landmark_states = landmark_states
 
-    def state_update(self, particles, weights):
+    def state_update_(self, particles, weights):
         '''
         Update the robot and landmark states by taking average among all
         particles.
@@ -399,7 +399,7 @@ class FastSLAM1():
         plt.legend()
         plt.xlim((-2.0, 5.5))
         plt.ylim((-7.0, 7.0))
-        plt.pause(1e-16)
+        plt.pause(1e-35)
 
 
 if __name__ == "__main__":
