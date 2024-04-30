@@ -17,6 +17,7 @@ import numpy as np
 from lib import MotionModel
 from lib import MeasurementModel
 from lib import Particle
+from lib import EKF_Landmarks
 from src.Fast_SLAM_1_known_correspondences import FastSLAM1
 
 # modules from particles
@@ -30,8 +31,8 @@ from particles import utils
 
 class fastSLAM_SSM(ssm.StateSpaceModel):
     default_params = {'sigma_x':0.0, 'sigma_y':0.0, 'sigma_theta':0.0, \
-                           'sigma_v': 0.1, 'sigma_w': 0.15, 'gamma': 0.0, \
-                            'sigma_range': 0.05, 'sigma_bearing': 0.02,\
+                           'sigma_v': 0.1, 'sigma_w': 0.25, 'gamma': 0.2, \
+                            'sigma_range': 0.2, 'sigma_bearing': 0.3,\
                                 'bias_v': -0.0, 'bias_w':0.0} 
     @staticmethod
     def create_fast_slam():
@@ -73,8 +74,8 @@ class fastSLAM_SSM(ssm.StateSpaceModel):
         
         ## Initialize Measurement Model object
         # Measurement covariance matrix
-        Q = np.diagflat(np.array([self.sigma_range, self.sigma_bearing])) ** 2
-        self.measurement_model = MeasurementModel(Q)
+        self.Q = np.diagflat(np.array([self.sigma_range, self.sigma_bearing])) ** 2
+        self.measurement_model = MeasurementModel(self.Q)
         
         # Number of landmarks
         self.N_landmarks = len(self.fast_slam.landmark_indexes)
@@ -166,16 +167,22 @@ class fastSLAM_FK(ssm.Bootstrap):
         inc_lw = np.ones(len(x_ev))
         # no multiprocessing
         if (not(measurement_model is None) and (n_proc == 1)):
-            for i in range(len(x_ev)):
-                # Initialize landmark by measurement if it is newly observed
-                if not x_ev[i].lm_ob[landmark_idx]:
-                    x_ev[i] = measurement_model.initialize_landmark(x_ev[i],\
-                                                    measurement,landmark_idx, 0)
-                # Update landmark by EKF if it has been observed before
-                else:
-                    x_ev[i] = measurement_model.\
-                        landmark_update(x_ev[i], measurement, landmark_idx)
-                    inc_lw[i] = x_ev[i].weight + 10**(-300)
+            # initialize landmark by measurement if it is newly observed
+            if not self.ekf_filters.lm_ob[landmark_idx]:
+                self.ekf_filters.initialize_landmark(x, measurement, landmark_idx)
+            # Update landmark by EKF if it has been observed before
+            else:
+                inc_lw = self.ekf_filters.landmark_update(x, measurement, landmark_idx) + 10**(-300)
+            # for i in range(len(x_ev)):
+            #     # Initialize landmark by measurement if it is newly observed
+            #     if not x_ev[i].lm_ob[landmark_idx]:
+            #         x_ev[i] = measurement_model.initialize_landmark(x_ev[i],\
+            #                                         measurement,landmark_idx, 0)
+            #     # Update landmark by EKF if it has been observed before
+            #     else:
+            #         x_ev[i] = measurement_model.\
+            #             landmark_update(x_ev[i], measurement, landmark_idx)
+            #         inc_lw[i] = x_ev[i].weight + 10**(-300)
             inc_lw = np.log(inc_lw)
         # multiprocessing
         elif not(measurement_model is None):
@@ -212,6 +219,9 @@ class fastSLAM_SMC(particles.SMC):
         self.n_proc = n_proc
         # particles evolved (with a Kalman Filter)
         self.X_ev, self.Xp_ev, self.Aev = [], [], []
+        # EKF filters for landmarks
+        ekf_filters = EKF_Landmarks(N, self.fk.ssm.N_landmarks, self.fk.ssm.Q)
+        self.fk.ekf_filters = ekf_filters
     
     def reset_weights(self):
         super().reset_weights()
@@ -223,6 +233,15 @@ class fastSLAM_SMC(particles.SMC):
         # First state is obtained from ground truth
         states = np.array([self.fk.ssm.fast_slam.groundtruth_data[0]])
         
+        
+        # Landmark states: [x, y]
+        landmark_states = np.zeros((self.fk.ssm.N_landmarks, 2))
+
+        # Table to record if each landmark has been seen or not
+        # [0] - [14] represent for landmark# 6 - 20
+        # self.landmark_observed = np.full(self.N_landmarks, False)
+
+
         # Landmark states: [x, y]
         landmark_states = np.zeros((self.fk.ssm.N_landmarks, 2))
 
@@ -233,11 +252,13 @@ class fastSLAM_SMC(particles.SMC):
         # Initialize particles
         self.X = self.fk.M0(self.N)
         # Limit θ within [-pi, pi]
-        for i in range(len(self.X)):
-            if (self.X[i][2] > np.pi):
-                self.X[i][2] -= 2 * np.pi
-            elif (self.X[i][2] < -np.pi):
-                self.X[i][2] += 2 * np.pi 
+        self.X[:,2] = np.where(self.X[:,2] > np.pi, self.X[:,2] - 2 * np.pi, self.X[:,2] )
+        self.X[:,2] = np.where(self.X[:,2] < -np.pi, self.X[:,2] + 2 * np.pi, self.X[:,2] )
+        # for i in range(len(self.X)):
+        #     if (self.X[i][2] > np.pi):
+        #         self.X[i][2] -= 2 * np.pi
+        #     elif (self.X[i][2] < -np.pi):
+        #         self.X[i][2] += 2 * np.pi 
         
         # initialize evolved particles that keep track of landmark positions
         for i in range(self.N):
@@ -261,6 +282,8 @@ class fastSLAM_SMC(particles.SMC):
             # different size (example: waste-free)
             self.Xp = self.X[self.A]
             # resample the evolved particles with EKFs
+            ## TODO : Fix with deepcopy
+            self.fk.ekf_filters.resample_landmarks(self.A)
             X_ev_arr = np.array(self.X_ev)
             X_ev_arr = X_ev_arr[self.A]
             self.Xp_ev = list(X_ev_arr)
@@ -271,11 +294,14 @@ class fastSLAM_SMC(particles.SMC):
             self.Xp_ev = self.X_ev
         self.X = self.fk.M(self.t, self.Xp)
         # Limit θ within [-pi, pi]
-        for i in range(len(self.X)):
-            if (self.X[i][2] > np.pi):
-                self.X[i][2] -= 2 * np.pi
-            elif (self.X[i][2] < -np.pi):
-                self.X[i][2] += 2 * np.pi
+        self.X[:,2] = np.where(self.X[:,2] > np.pi, self.X[:,2] - 2 * np.pi, self.X[:,2] )
+        self.X[:,2] = np.where(self.X[:,2] < -np.pi, self.X[:,2] + 2 * np.pi, self.X[:,2] )
+        
+        # for i in range(len(self.X)):
+        #     if (self.X[i][2] > np.pi):
+        #         self.X[i][2] -= 2 * np.pi
+        #     elif (self.X[i][2] < -np.pi):
+        #         self.X[i][2] += 2 * np.pi
         
         for i in range(self.N):
             self.X_ev[i].x = self.X[i][0]
@@ -297,11 +323,11 @@ class fastSLAM_SMC(particles.SMC):
         self.reweight_particles()
         self.compute_summaries()
         self.t += 1
-        if self.verbose :
-            # plot the estimated trajectory and position of landmarks
-            self.fk.ssm.fast_slam.state_update_(self.X_ev, self.wgts.W)
-            if (len(self.fk.ssm.fast_slam.states) % 100 == 0):
-                self.fk.ssm.fast_slam.plot_data(self.X_ev)
+        # if self.verbose :
+        #     # plot the estimated trajectory and position of landmarks
+        #     self.fk.ssm.fast_slam.state_update__(self.X, self.wgts.W, self.fk.ekf_filters)
+        #     if (len(self.fk.ssm.fast_slam.states) % 100 == 0):
+        #         self.fk.ssm.fast_slam.plot_data_(self.X)
 
 
 class fastSLAM_SMC2(ssp.SMC2):

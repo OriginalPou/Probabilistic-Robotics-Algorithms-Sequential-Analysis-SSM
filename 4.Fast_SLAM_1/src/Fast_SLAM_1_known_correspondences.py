@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import copy
 
 from lib.particle import Particle
-
+from lib.landmarks_ekf import EKF_Landmarks
 
 class FastSLAM1():
     def __init__(self, motion_model, measurement_model):
@@ -332,6 +332,41 @@ class FastSLAM1():
 
         self.landmark_states = landmark_states
 
+    def state_update__(self, particles : np.ndarray, weights : np.ndarray, landmarks_ekf : EKF_Landmarks):
+        '''
+        Update the robot and landmark states by taking average among all
+        particles.
+        This version makes a weighted average of the particles state estimates
+
+        Input:
+            particles np array (N_particles, 3)
+                        [x, y, theta]
+            weights : a np array of the normalized weights from the SMC algorithm
+            landmark_ekf :  a EKF_Landmarks object containing the means and cov of all the landmarks
+                            across the different particles
+        Output:
+            None.
+        '''
+        # Robot state
+        timestamp = 0
+        x = np.average(particles[:,0], weights= weights)
+        y = np.average(particles[:,1], weights= weights)
+        theta = np.average(particles[:,2], weights= weights)
+        
+        self.N_particles = landmarks_ekf.N_particles
+        self.N_landmarks = landmarks_ekf.N_landmarks
+
+        self.states = np.append(self.states,
+                                np.array([[timestamp, x, y, theta]]), axis=0)
+
+        # Landmark state
+        landmark_states = np.zeros((self.N_landmarks, 2))
+        for i in range(self.N_landmarks):
+            landmark_states[i, 0] = np.average(landmarks_ekf.lm_mean[i, ::2 ], weights=weights)
+            landmark_states[i, 1] = np.average(landmarks_ekf.lm_mean[i, 1::2], weights=weights)
+        
+        self.landmark_observed = landmarks_ekf.lm_ob
+        self.landmark_states = landmark_states
 
     def plot_data(self, particles = None):
         '''
@@ -401,6 +436,73 @@ class FastSLAM1():
         plt.ylim((-7.0, 7.0))
         plt.pause(1e-35)
 
+
+    def plot_data_(self, particles):
+        '''
+        Plot all data through matplotlib.
+        Conduct animation as the algorithm runs.
+
+        Input:
+            particles : np array (N_particles, 3)
+                        [x, y, theta]
+        Output:
+            None.
+        '''
+        # Clear all
+        plt.cla()
+
+        # Ground truth data
+        plt.plot(self.groundtruth_data[:, 1], self.groundtruth_data[:, 2],
+                 'b', label="Robot State Ground truth")
+
+        # States
+        plt.plot(self.states[:, 1], self.states[:, 2],
+                 'r', label="Robot State Estimate")
+
+        # Start and end points
+        plt.plot(self.groundtruth_data[0, 1], self.groundtruth_data[0, 2],
+                 'g8', markersize=12, label="Start point")
+        plt.plot(self.groundtruth_data[-1, 1], self.groundtruth_data[-1, 2],
+                 'y8', markersize=12, label="End point")
+
+        # Particles
+        particle_xs = []
+        particle_ys = []
+        for i in range(len(particles)):
+            particle_xs.append(particles[i,0])
+            particle_ys.append(particles[i,1])
+        plt.scatter(particle_xs, particle_ys,
+                    s=5, c='k', alpha=0.5, label="Particles")
+
+        # Landmark ground truth locations and indexes
+        landmark_xs = []
+        landmark_ys = []
+        for location in self.landmark_locations:
+            landmark_xs.append(self.landmark_locations[location][0])
+            landmark_ys.append(self.landmark_locations[location][1])
+            index = self.landmark_indexes[location] + 6
+            plt.text(landmark_xs[-1], landmark_ys[-1], str(index),
+                     alpha=0.5, fontsize=10)
+        plt.scatter(landmark_xs, landmark_ys, s=200, c='k', alpha=0.2,
+                    marker='*', label='Landmark Ground Truth')
+
+        # Landmark estimated locations
+        estimate_xs = []
+        estimate_ys = []
+        for i in range(self.N_landmarks):
+            if self.landmark_observed[i]:
+                estimate_xs.append(self.landmark_states[i, 0])
+                estimate_ys.append(self.landmark_states[i, 1])
+                plt.text(estimate_xs[-1], estimate_ys[-1],
+                         str(i+6), fontsize=10)
+        plt.scatter(estimate_xs, estimate_ys,
+                    s=50, c='k', marker='P', label='Landmark Estimate')
+
+        plt.title('Fast SLAM 1.0 with known correspondences')
+        plt.legend()
+        plt.xlim((-2.0, 5.5))
+        plt.ylim((-7.0, 7.0))
+        plt.pause(1e-35)
 
 if __name__ == "__main__":
     pass

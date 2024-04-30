@@ -63,7 +63,6 @@ class MeasurementModel():
             np.cos(measurement[3] + particle.theta)
         y = particle.y + measurement[2] *\
             np.sin(measurement[3] + particle.theta)
-
         return x, y
 
     def compute_landmark_jacobian(self, particle, landmark_idx):
@@ -126,7 +125,7 @@ class MeasurementModel():
         # particle.weight = weight
 
         # Update timestamp
-        particle.timestamp = measurement[0]
+        # particle.timestamp = measurement[0]
         return particle
 
     def landmark_update(self, particle, measurement, landmark_idx):
@@ -172,7 +171,7 @@ class MeasurementModel():
                    dot(difference))[0, 0]
 
         # Update timestamp
-        particle.timestamp = measurement[0]
+        # particle.timestamp = measurement[0]
         return (particle)
 
     def compute_correspondence(self, particle, measurement, landmark_idx):
