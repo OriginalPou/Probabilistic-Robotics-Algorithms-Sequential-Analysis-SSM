@@ -13,6 +13,7 @@ Email: mchaari@unistra.fr
 
 
 import numpy as np
+import copy
 
 from lib import MotionModel
 from lib import MeasurementModel
@@ -118,20 +119,12 @@ class fastSLAM_SSM(ssm.StateSpaceModel):
         return (measurement, measurement_model)
 
 
-def landmark_update(particle, measurement_model, measurement, landmark_idx):
-    if not particle.lm_ob[landmark_idx]:
-        particle = measurement_model.initialize_landmark(particle,\
-                                        measurement,landmark_idx, 0)
-    # Update landmark by EKF if it has been observed before
-    else:
-        particle = measurement_model.\
-            landmark_update(particle, measurement, landmark_idx)
-    return(particle)
 
 class fastSLAM_FK(ssm.Bootstrap):
     def __init__(self, ssm : fastSLAM_SSM, data=None):
         self.ssm = ssm
         self.data = data
+        self.ekf_filters = None
 
     @property
     def T(self):
@@ -146,6 +139,7 @@ class fastSLAM_FK(ssm.Bootstrap):
         """Generate X_t according to kernel M_t, conditional on X_{t-1}=xp"""
         noisy_control_dist, delta_t = self.ssm.POdom(t)
         if not(noisy_control_dist is None):
+            #np.random.seed(seed= 0)
             noisy_control = noisy_control_dist.rvs(size = xp.shape[0])
             v = noisy_control[:,0] + self.ssm.bias_v
             w = noisy_control[:,1] + self.ssm.bias_w
@@ -159,45 +153,36 @@ class fastSLAM_FK(ssm.Bootstrap):
         """Evaluates log of function G_t(x_{t-1}, x_t)"""
         raise NotImplementedError(self._error_msg("logG"))
 
-    def logG(self, t, xp, x, x_ev, n_proc = 1):
+    def logG(self, t, xp, x, x_ev = None, n_proc = 1):
         """Evaluates log of function G_t(x_t, measurement)"""
         measurement, measurement_model = self.ssm.measure_data(t)
         landmark_idx = int(measurement[1])
         # incremental log-weights
-        inc_lw = np.ones(len(x_ev))
-        # no multiprocessing
+        inc_lw = np.ones(len(x))
+        # no parallelizing the computation of matrices
         if (not(measurement_model is None) and (n_proc == 1)):
+            for i in range(len(x_ev)):
+                # Initialize landmark by measurement if it is newly observed
+                if not x_ev[i].lm_ob[landmark_idx]:
+                    x_ev[i] = measurement_model.initialize_landmark(x_ev[i],\
+                                                    measurement,landmark_idx, 0)
+                # Update landmark by EKF if it has been observed before
+                else:
+                    x_ev[i] = measurement_model.\
+                        landmark_update(x_ev[i], measurement, landmark_idx)
+                    inc_lw[i] = x_ev[i].weight + 10**(-300)
+            inc_lw = np.log(inc_lw)
+        # parallelizing the computation of matrices
+        elif not(measurement_model is None):
             # initialize landmark by measurement if it is newly observed
             if not self.ekf_filters.lm_ob[landmark_idx]:
                 self.ekf_filters.initialize_landmark(x, measurement, landmark_idx)
             # Update landmark by EKF if it has been observed before
             else:
                 inc_lw = self.ekf_filters.landmark_update(x, measurement, landmark_idx) + 10**(-300)
-            # for i in range(len(x_ev)):
-            #     # Initialize landmark by measurement if it is newly observed
-            #     if not x_ev[i].lm_ob[landmark_idx]:
-            #         x_ev[i] = measurement_model.initialize_landmark(x_ev[i],\
-            #                                         measurement,landmark_idx, 0)
-            #     # Update landmark by EKF if it has been observed before
-            #     else:
-            #         x_ev[i] = measurement_model.\
-            #             landmark_update(x_ev[i], measurement, landmark_idx)
-            #         inc_lw[i] = x_ev[i].weight + 10**(-300)
-            inc_lw = np.log(inc_lw)
-        # multiprocessing
-        elif not(measurement_model is None):
-            # update the particles
-            up_x_ev = utils.multiplexer(f= landmark_update, nprocs= n_proc, particle=x_ev, measurement_model= \
-                              measurement_model, measurement = measurement, landmark_idx = landmark_idx)
-            # sort the results after multiprocessing
-            up_x_ev.sort(key=lambda output: output["particle"].particle_idx)
-            # save results in proper format
-            for i in range(len(x_ev)):
-                x_ev[i] = up_x_ev[i]["output"]
-                inc_lw[i] = x_ev[i].weight + 10**(-10)
             inc_lw = np.log(inc_lw)
         else:
-            inc_lw = np.zeros(len(x_ev))
+            inc_lw = np.zeros(len(x))
         return(x_ev, inc_lw)
 
 
@@ -212,63 +197,38 @@ class fastSLAM_SMC(particles.SMC):
         store_history=False,
         verbose=False,
         collect=None,
-        n_proc = 1
+        n_proc = 0
     ):
         super().__init__(fk, N, qmc, resampling, ESSrmin, store_history, verbose, collect)
         # multiprocessing
         self.n_proc = n_proc
         # particles evolved (with a Kalman Filter)
         self.X_ev, self.Xp_ev, self.Aev = [], [], []
-        # EKF filters for landmarks
-        ekf_filters = EKF_Landmarks(N, self.fk.ssm.N_landmarks, self.fk.ssm.Q)
-        self.fk.ekf_filters = ekf_filters
-    
-    def reset_weights(self):
-        super().reset_weights()
-        for i in range(len(self.X_ev)):
-            self.X_ev[i].weight = 1.0 / self.N
-            self.X_ev[i].particle_idx = i
-
+        if self.n_proc != 1:
+            # EKF filters for landmarks
+            ekf_filters = EKF_Landmarks(N, self.fk.ssm.N_landmarks, self.fk.ssm.Q)
+            self.fk.ekf_filters = ekf_filters   
+         
     def generate_particles(self):
         # First state is obtained from ground truth
         states = np.array([self.fk.ssm.fast_slam.groundtruth_data[0]])
-        
-        
-        # Landmark states: [x, y]
-        landmark_states = np.zeros((self.fk.ssm.N_landmarks, 2))
-
-        # Table to record if each landmark has been seen or not
-        # [0] - [14] represent for landmark# 6 - 20
-        # self.landmark_observed = np.full(self.N_landmarks, False)
-
-
-        # Landmark states: [x, y]
-        landmark_states = np.zeros((self.fk.ssm.N_landmarks, 2))
-
-        # Table to record if each landmark has been seen or not
-        # [0] - [14] represent for landmark# 6 - 20
-        # self.landmark_observed = np.full(self.N_landmarks, False)
 
         # Initialize particles
         self.X = self.fk.M0(self.N)
         # Limit θ within [-pi, pi]
         self.X[:,2] = np.where(self.X[:,2] > np.pi, self.X[:,2] - 2 * np.pi, self.X[:,2] )
         self.X[:,2] = np.where(self.X[:,2] < -np.pi, self.X[:,2] + 2 * np.pi, self.X[:,2] )
-        # for i in range(len(self.X)):
-        #     if (self.X[i][2] > np.pi):
-        #         self.X[i][2] -= 2 * np.pi
-        #     elif (self.X[i][2] < -np.pi):
-        #         self.X[i][2] += 2 * np.pi 
         
-        # initialize evolved particles that keep track of landmark positions
-        for i in range(self.N):
-            particle = Particle(i)
-            particle.initialization(states[0], self.N,
-                                    self.fk.ssm.N_landmarks)
-            particle.x = self.X[i][0]
-            particle.y = self.X[i][1]
-            particle.theta = self.X[i][2]
-            self.X_ev.append(particle)
+        if self.n_proc == 1 :
+            # initialize evolved particles that keep track of landmark positions
+            for i in range(self.N):
+                particle = Particle(i)
+                particle.initialization(states[0], self.N,
+                                        self.fk.ssm.N_landmarks)
+                particle.x = self.X[i][0]
+                particle.y = self.X[i][1]
+                particle.theta = self.X[i][2]
+                self.X_ev.append(particle)
 
     def reweight_particles(self):
         self.X_ev, wgts = self.fk.logG(self.t, self.Xp, self.X, self.X_ev, n_proc = self.n_proc)
@@ -280,13 +240,14 @@ class fastSLAM_SMC(particles.SMC):
             self.A = rs.resampling(self.resampling, self.aux.W, M=self.N)
             # we always resample self.N particles, even if smc.X has a
             # different size (example: waste-free)
-            self.Xp = self.X[self.A]
+            self.Xp = self.X[self.A]             
             # resample the evolved particles with EKFs
-            ## TODO : Fix with deepcopy
-            self.fk.ekf_filters.resample_landmarks(self.A)
-            X_ev_arr = np.array(self.X_ev)
-            X_ev_arr = X_ev_arr[self.A]
-            self.Xp_ev = list(X_ev_arr)
+            if self.n_proc == 1 :
+                for i in range(len(self.A)):
+                    self.Xp_ev[i] = copy.deepcopy(self.X_ev[self.A[i]])
+                self.X_ev = self.Xp_ev
+            else :
+                self.fk.ekf_filters.resample_landmarks(self.A)
             self.reset_weights()
         else:
             self.A = np.arange(self.N)
@@ -297,16 +258,11 @@ class fastSLAM_SMC(particles.SMC):
         self.X[:,2] = np.where(self.X[:,2] > np.pi, self.X[:,2] - 2 * np.pi, self.X[:,2] )
         self.X[:,2] = np.where(self.X[:,2] < -np.pi, self.X[:,2] + 2 * np.pi, self.X[:,2] )
         
-        # for i in range(len(self.X)):
-        #     if (self.X[i][2] > np.pi):
-        #         self.X[i][2] -= 2 * np.pi
-        #     elif (self.X[i][2] < -np.pi):
-        #         self.X[i][2] += 2 * np.pi
-        
-        for i in range(self.N):
-            self.X_ev[i].x = self.X[i][0]
-            self.X_ev[i].y = self.X[i][1]
-            self.X_ev[i].theta = self.X[i][2]
+        if self.n_proc == 1 :
+            for i in range(self.N):
+                self.X_ev[i].x = self.X[i][0]
+                self.X_ev[i].y = self.X[i][1]
+                self.X_ev[i].theta = self.X[i][2]
 
     def __next__(self):
         """One step of a particle filter."""
@@ -354,8 +310,7 @@ class fastSLAM_SMC2(ssp.SMC2):
         return fastSLAM_SMC(
             fk=self.fk_cls(ssm=self.ssm_cls(**theta), data=self.data),
             N=N,
-            n_proc= -1,
-            **self.smc_options
+            n_proc= 1,
         )
 
 if __name__ == '__main__':

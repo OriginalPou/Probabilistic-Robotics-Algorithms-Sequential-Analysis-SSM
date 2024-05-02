@@ -151,7 +151,9 @@ class EKF_Landmarks():
         H_m = self.compute_landmark_jacobian(particles, landmark_idx)
 
         # Update landmark covariance
-        H_inverse = np.linalg.inv(H_m)
+        H_inverse = np.zeros((2*self.N_particles,2*self.N_particles))
+        for i in range(self.N_particles):
+            H_inverse[2*i : 2*i+2, 2*i : 2*i+2] = np.linalg.inv(H_m[2*i : 2*i+2, 2*i : 2*i+2])
         self.lm_cov[landmark_idx] = H_inverse @ self.Q @ (H_inverse.T)
 
         # Mark landmark as observed
@@ -183,7 +185,10 @@ class EKF_Landmarks():
 
         # Compute Kalman gain
         Q = H_m.dot(self.lm_cov[landmark_idx]).dot(H_m.T) + self.Q
-        K = self.lm_cov[landmark_idx].dot(H_m.T).dot(np.linalg.inv(Q))
+        Q_inverse = np.zeros((2*self.N_particles,2*self.N_particles))
+        for i in range(self.N_particles):
+            Q_inverse[2*i : 2*i+2, 2*i : 2*i+2] = np.linalg.inv(Q[2*i : 2*i+2, 2*i : 2*i+2])
+        K = self.lm_cov[landmark_idx] @ H_m.T @ Q_inverse
 
         # Update mean
         difference = np.zeros((2*self.N_particles))
@@ -203,7 +208,7 @@ class EKF_Landmarks():
         for i in range(self.N_particles):
             Q_det[i] = np.linalg.det(2 * np.pi * Q[2*i:2*i+2,2*i:2*i+2]) ** (-0.5) 
         difference = np.kron(np.eye(N=self.N_particles,dtype=int),np.array([1,1])) * difference.T
-        weights = np.diag(Q_det * np.exp(-0.5 * difference @ (np.linalg.inv(Q)) @ (difference.T)))
+        weights = np.diag(Q_det * np.exp(-0.5 * difference @ (Q_inverse) @ (difference.T)))
 
         return (weights)
     
