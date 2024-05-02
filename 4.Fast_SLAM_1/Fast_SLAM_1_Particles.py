@@ -119,7 +119,6 @@ class fastSLAM_SSM(ssm.StateSpaceModel):
         return (measurement, measurement_model)
 
 
-
 class fastSLAM_FK(ssm.Bootstrap):
     def __init__(self, ssm : fastSLAM_SSM, data=None):
         self.ssm = ssm
@@ -133,13 +132,14 @@ class fastSLAM_FK(ssm.Bootstrap):
 
     def M0(self, N):
         """Sample N times from initial distribution M_0 of the FK model"""
+        # np.random.seed(seed= 0)
         return self.ssm.PX0().rvs(size=N)
 
     def M(self, t, xp):
         """Generate X_t according to kernel M_t, conditional on X_{t-1}=xp"""
         noisy_control_dist, delta_t = self.ssm.POdom(t)
         if not(noisy_control_dist is None):
-            #np.random.seed(seed= 0)
+            # np.random.seed(seed= 0)
             noisy_control = noisy_control_dist.rvs(size = xp.shape[0])
             v = noisy_control[:,0] + self.ssm.bias_v
             w = noisy_control[:,1] + self.ssm.bias_w
@@ -196,10 +196,13 @@ class fastSLAM_SMC(particles.SMC):
         ESSrmin=0.5,
         store_history=False,
         verbose=False,
+        hard_verbose = False, # for plotting the trajectory
         collect=None,
         n_proc = 0
     ):
         super().__init__(fk, N, qmc, resampling, ESSrmin, store_history, verbose, collect)
+        # plotting the trajectory
+        self.hard_verbose = hard_verbose
         # multiprocessing
         self.n_proc = n_proc
         # particles evolved (with a Kalman Filter)
@@ -279,11 +282,17 @@ class fastSLAM_SMC(particles.SMC):
         self.reweight_particles()
         self.compute_summaries()
         self.t += 1
-        # if self.verbose :
-        #     # plot the estimated trajectory and position of landmarks
-        #     self.fk.ssm.fast_slam.state_update__(self.X, self.wgts.W, self.fk.ekf_filters)
-        #     if (len(self.fk.ssm.fast_slam.states) % 100 == 0):
-        #         self.fk.ssm.fast_slam.plot_data_(self.X)
+        if self.hard_verbose :
+            if self.n_proc == 1:
+                # plot the estimated trajectory and position of landmarks
+                self.fk.ssm.fast_slam.state_update_(self.X_ev, self.wgts.W)
+                if (self.fk.T == self.t + 1):
+                    self.fk.ssm.fast_slam.plot_data(self.X_ev)
+            else :
+                # plot the estimated trajectory and position of landmarks
+                self.fk.ssm.fast_slam.state_update__(self.X, self.wgts.W, self.fk.ekf_filters)
+                if (self.fk.T == self.t + 1):
+                    self.fk.ssm.fast_slam.plot_data_(self.X)
 
 
 class fastSLAM_SMC2(ssp.SMC2):

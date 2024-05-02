@@ -106,7 +106,7 @@ class EKF_Landmarks():
         '''
         delta_x = self.lm_mean[landmark_idx, ::2  ] - particles[:,0]
         delta_y = self.lm_mean[landmark_idx, 1::2 ] - particles[:,1]
-        q = delta_x.T ** 2 + delta_y ** 2
+        q = delta_x ** 2 + delta_y ** 2
 
         H_0_0 = delta_x/np.sqrt(q)
         H_0_1 = delta_y/np.sqrt(q)
@@ -184,7 +184,7 @@ class EKF_Landmarks():
         H_m = self.compute_landmark_jacobian(particles, landmark_idx)
 
         # Compute Kalman gain
-        Q = H_m.dot(self.lm_cov[landmark_idx]).dot(H_m.T) + self.Q
+        Q = H_m @ self.lm_cov[landmark_idx] @ H_m.T + self.Q
         Q_inverse = np.zeros((2*self.N_particles,2*self.N_particles))
         for i in range(self.N_particles):
             Q_inverse[2*i : 2*i+2, 2*i : 2*i+2] = np.linalg.inv(Q[2*i : 2*i+2, 2*i : 2*i+2])
@@ -208,7 +208,7 @@ class EKF_Landmarks():
         for i in range(self.N_particles):
             Q_det[i] = np.linalg.det(2 * np.pi * Q[2*i:2*i+2,2*i:2*i+2]) ** (-0.5) 
         difference = np.kron(np.eye(N=self.N_particles,dtype=int),np.array([1,1])) * difference.T
-        weights = np.diag(Q_det * np.exp(-0.5 * difference @ (Q_inverse) @ (difference.T)))
+        weights = np.diag(Q_det * np.exp(-0.5 * difference @ Q_inverse @ difference.T))
 
         return (weights)
     

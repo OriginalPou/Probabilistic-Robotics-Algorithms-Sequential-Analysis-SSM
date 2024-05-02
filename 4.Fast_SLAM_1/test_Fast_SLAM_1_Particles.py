@@ -23,12 +23,13 @@ import seaborn as sb
 if __name__ == '__main__':
     my_model = fastSLAM_SSM()
     fk_model = fastSLAM_FK(ssm=my_model)
-    pf = fastSLAM_SMC(fk = fk_model, n_proc= 1, N=200,
-                  collect=[Moments()], store_history=True, verbose=True)  # the algorithm)
+    pf = fastSLAM_SMC(fk = fk_model, n_proc= 0, N=200,
+                  collect=[Moments()], store_history=True, verbose=True, hard_verbose= True)
 #%%
     # run the particle filter
     pf.next()
     pf.run()
+    plt.show()
 
 #%%
     prior_dict = {  'sigma_v': dists.Uniform(a=0., b=0.5), 
@@ -45,30 +46,30 @@ if __name__ == '__main__':
     # pmmh.run()  # Warning: takes a few seconds
 
 #%%
-    fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=100,
-                   ar_to_increase_Nx=0.1, len_chain= 10)
-    results_smc2 = particles.multiSMC(fk=fk_smc2, N=50, nruns=15, verbose = True)
+    # fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=100,
+    #                ar_to_increase_Nx=0.1, len_chain= 10)
+    # results_smc2 = particles.multiSMC(fk=fk_smc2, N=50, nruns=15, verbose = True)
     #plt.figure()
     #sb.boxplot(x=[r['output'].logLt for r in results_smc2], y=[r['qmc'] for r in results_smc2]);
 
 #%% 
 
-    fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=200,
-                   ar_to_increase_Nx=-0.1, len_chain= 10)
-    alg_smc2 = particles.SMC(fk=fk_smc2, N=50, verbose= True)
-    alg_smc2.run()
+    # fk_smc2 = fastSLAM_SMC2(ssm_cls=fastSLAM_SSM, fk_cls = fastSLAM_FK, data=None, prior=my_prior,init_Nx=200,
+    #                ar_to_increase_Nx=-0.1, len_chain= 10)
+    # alg_smc2 = particles.SMC(fk=fk_smc2, N=50, verbose= True)
+    # alg_smc2.run()
 
 #%%
-    i = 0
-    another_theta = my_prior.rvs(size=1000)
-    for p in prior_dict.keys():
-        plt.subplot(2, 5, i + 1)
-        # plt.ylim((0, 0.8))
-        # plt.xlim((0, 6))
-        sb.distplot(alg_smc2.X.theta[p], 40)
-        sb.distplot(another_theta[p], 40)
-        plt.xlabel(p)
-        i += 1
-    plt.show()
+    # i = 0
+    # another_theta = my_prior.rvs(size=1000)
+    # for p in prior_dict.keys():
+    #     plt.subplot(2, 5, i + 1)
+    #     # plt.ylim((0, 0.8))
+    #     # plt.xlim((0, 6))
+    #     sb.distplot(alg_smc2.X.theta[p], 40)
+    #     sb.distplot(another_theta[p], 40)
+    #     plt.xlabel(p)
+    #     i += 1
+    # plt.show()
 
 # %%
