@@ -15,6 +15,9 @@ Author: Mahdi Chaari
 Email: mchaari@unistra.fr
 '''
 import numpy as np
+from sparse_dot_mkl import dot_product_mkl
+from scipy.sparse import csr_matrix, coo_matrix, csc_array 
+import copy
 
 class EKF_Landmarks():
     def __init__(self, N_particles, N_landmarks, Q) -> None:
@@ -26,15 +29,16 @@ class EKF_Landmarks():
                Dimension: [2, 2].
         '''
         # All landmarks' Mean and Covariance
-        self.lm_mean = np.zeros((N_landmarks, 2*N_particles))
-        self.lm_cov  = np.zeros((N_landmarks, 2*N_particles, 2*N_particles))
+        self.lm_mean = np.zeros((N_landmarks, 2*N_particles), dtype= np.float64)
+        self.lm_cov  = {}
+        #np.zeros((N_landmarks, 2*N_particles, 2*N_particles))
 
         # Table to record if each landmark has been seen or not
         # INdex [0] - [14] represent for landmark# 6 - 20
         self.lm_ob = np.full(N_landmarks, False)
 
         # self.Q : Dimension [2*N_particles, 2*N_particles] 
-        self.Q = np.kron(np.eye(N_particles,dtype=int),Q)
+        self.Q = csr_matrix(np.kron(np.eye(N_particles,dtype=np.float64),Q))
         
         self.N_particles = N_particles
         self.N_landmarks = N_landmarks
@@ -154,7 +158,8 @@ class EKF_Landmarks():
         H_inverse = np.zeros((2*self.N_particles,2*self.N_particles))
         for i in range(self.N_particles):
             H_inverse[2*i : 2*i+2, 2*i : 2*i+2] = np.linalg.inv(H_m[2*i : 2*i+2, 2*i : 2*i+2])
-        self.lm_cov[landmark_idx] = H_inverse @ self.Q @ (H_inverse.T)
+        H_inverse = csr_matrix(H_inverse)
+        self.lm_cov[landmark_idx] = dot_product_mkl(H_inverse , dot_product_mkl( self.Q, H_inverse.T))
 
         # Mark landmark as observed
         self.lm_ob[landmark_idx] = True
@@ -181,34 +186,37 @@ class EKF_Landmarks():
             self.compute_expected_measurement(particles, landmark_idx)
 
         # Get Jacobian wrt landmark state
-        H_m = self.compute_landmark_jacobian(particles, landmark_idx)
+        H_m = csr_matrix(self.compute_landmark_jacobian(particles, landmark_idx))
 
         # Compute Kalman gain
-        Q = H_m @ self.lm_cov[landmark_idx] @ H_m.T + self.Q
-        Q_inverse = np.zeros((2*self.N_particles,2*self.N_particles))
+        Q = dot_product_mkl(H_m, dot_product_mkl(self.lm_cov[landmark_idx], H_m.T)) + self.Q
+        Q = Q.todense()
+        Q_inverse = np.zeros((2*self.N_particles,2*self.N_particles), dtype=np.float64)
         for i in range(self.N_particles):
             Q_inverse[2*i : 2*i+2, 2*i : 2*i+2] = np.linalg.inv(Q[2*i : 2*i+2, 2*i : 2*i+2])
-        K = self.lm_cov[landmark_idx] @ H_m.T @ Q_inverse
+        Q_inverse = csr_matrix(Q_inverse)
+        K = dot_product_mkl(self.lm_cov[landmark_idx], dot_product_mkl(H_m.T, Q_inverse))
 
         # Update mean
         difference = np.zeros((2*self.N_particles))
         difference[::2 ] = measurement[2] - range_expected
         difference[1::2] = measurement[3] - bearing_expected
-        innovation = K @ difference
+        innovation = dot_product_mkl(K,  csr_matrix(difference).T)
 
-        self.lm_mean[landmark_idx] += innovation
+        self.lm_mean[landmark_idx] += innovation.toarray()[:,0]
 
         # Update covariance
         self.lm_cov[landmark_idx] =\
-            (np.identity(2*self.N_particles) - K @ H_m) @self.lm_cov[landmark_idx]
+            dot_product_mkl(csr_matrix(np.identity(2*self.N_particles),dtype=np.float64) - dot_product_mkl(K, H_m) , \
+                  self.lm_cov[landmark_idx])
 
         # Importance factor
         weights = np.zeros((self.N_particles))
         Q_det  = np.zeros((self.N_particles))
         for i in range(self.N_particles):
             Q_det[i] = np.linalg.det(2 * np.pi * Q[2*i:2*i+2,2*i:2*i+2]) ** (-0.5) 
-        difference = np.kron(np.eye(N=self.N_particles,dtype=int),np.array([1,1])) * difference.T
-        weights = np.diag(Q_det * np.exp(-0.5 * difference @ Q_inverse @ difference.T))
+        difference = csr_matrix(np.kron(np.eye(N=self.N_particles,dtype=np.float64),np.array([1,1])) * difference.T)
+        weights = Q_det * np.exp(np.diag(-0.5 * (dot_product_mkl(difference, dot_product_mkl( Q_inverse, difference.T))).todense()))
 
         return (weights)
     
@@ -222,8 +230,12 @@ class EKF_Landmarks():
         self.lm_mean[:,::2 ] = self.lm_mean[:,A*2]
         self.lm_mean[:,1::2] = self.lm_mean[:,A*2 + 1]
         # update the cov of landmarks
-        for i in range (self.N_particles):
-            j = A[i]
-            self.lm_cov[:,2*i:2*i+2,2*i:2*i+2] = self.lm_cov[:,2*j:2*j+2,2*j:2*j+2]
+        for key in self.lm_cov.keys():
+            lm_cov_p = self.lm_cov[key].todense()
+            lm_cov = copy.deepcopy(lm_cov_p)
+            for i in range (self.N_particles):
+                j = A[i]
+                lm_cov[2*i:2*i+2,2*i:2*i+2] = lm_cov_p[2*j:2*j+2,2*j:2*j+2]
+            self.lm_cov[key] = csr_matrix(lm_cov)
 if __name__ == '__main__':
     pass

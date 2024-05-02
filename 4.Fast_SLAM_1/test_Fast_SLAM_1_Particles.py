@@ -23,12 +23,13 @@ import seaborn as sb
 if __name__ == '__main__':
     my_model = fastSLAM_SSM()
     fk_model = fastSLAM_FK(ssm=my_model)
-    pf = fastSLAM_SMC(fk = fk_model, n_proc= 0, N=200,
-                  collect=[Moments()], store_history=True, verbose=True, hard_verbose= True)
+    pf = fastSLAM_SMC(fk = fk_model, n_proc= 1, N=1000,
+                  collect=[Moments()], store_history=True, verbose=True, hard_verbose= False)
 #%%
     # run the particle filter
     pf.next()
     pf.run()
+    print(pf.cpu_time)
     plt.show()
 
 #%%

@@ -39,7 +39,7 @@ class fastSLAM_SSM(ssm.StateSpaceModel):
     def create_fast_slam():
         dataset = "0.Dataset0"
         start_frame = 800
-        end_frame = 40000
+        end_frame = 2000
         ## Initialize FastSLAM1 object and load data
         fast_slam = FastSLAM1(None, None)
         # load data
@@ -132,14 +132,14 @@ class fastSLAM_FK(ssm.Bootstrap):
 
     def M0(self, N):
         """Sample N times from initial distribution M_0 of the FK model"""
-        # np.random.seed(seed= 0)
+        np.random.seed(seed= 0)
         return self.ssm.PX0().rvs(size=N)
 
     def M(self, t, xp):
         """Generate X_t according to kernel M_t, conditional on X_{t-1}=xp"""
         noisy_control_dist, delta_t = self.ssm.POdom(t)
         if not(noisy_control_dist is None):
-            # np.random.seed(seed= 0)
+            np.random.seed(seed= 0)
             noisy_control = noisy_control_dist.rvs(size = xp.shape[0])
             v = noisy_control[:,0] + self.ssm.bias_v
             w = noisy_control[:,1] + self.ssm.bias_w
@@ -239,23 +239,23 @@ class fastSLAM_SMC(particles.SMC):
     
     def resample_move(self):
         self.rs_flag = self.fk.time_to_resample(self)
-        if self.rs_flag:  # if resampling
-            self.A = rs.resampling(self.resampling, self.aux.W, M=self.N)
-            # we always resample self.N particles, even if smc.X has a
-            # different size (example: waste-free)
-            self.Xp = self.X[self.A]             
-            # resample the evolved particles with EKFs
-            if self.n_proc == 1 :
-                for i in range(len(self.A)):
-                    self.Xp_ev[i] = copy.deepcopy(self.X_ev[self.A[i]])
-                self.X_ev = self.Xp_ev
-            else :
-                self.fk.ekf_filters.resample_landmarks(self.A)
-            self.reset_weights()
-        else:
-            self.A = np.arange(self.N)
-            self.Xp = self.X
-            self.Xp_ev = self.X_ev
+        # if self.rs_flag:  # if resampling
+        #     self.A = rs.resampling(self.resampling, self.aux.W, M=self.N)
+        #     # we always resample self.N particles, even if smc.X has a
+        #     # different size (example: waste-free)
+        #     self.Xp = self.X[self.A]             
+        #     # resample the evolved particles with EKFs
+        #     if self.n_proc == 1 :
+        #         for i in range(len(self.A)):
+        #             self.Xp_ev[i] = copy.deepcopy(self.X_ev[self.A[i]])
+        #         self.X_ev = self.Xp_ev
+        #     else :
+        #         self.fk.ekf_filters.resample_landmarks(self.A)
+        #     self.reset_weights()
+        # else:
+        self.A = np.arange(self.N)
+        self.Xp = self.X
+        self.Xp_ev = self.X_ev
         self.X = self.fk.M(self.t, self.Xp)
         # Limit θ within [-pi, pi]
         self.X[:,2] = np.where(self.X[:,2] > np.pi, self.X[:,2] - 2 * np.pi, self.X[:,2] )
@@ -291,7 +291,8 @@ class fastSLAM_SMC(particles.SMC):
             else :
                 # plot the estimated trajectory and position of landmarks
                 self.fk.ssm.fast_slam.state_update__(self.X, self.wgts.W, self.fk.ekf_filters)
-                if (self.fk.T == self.t + 1):
+                # if (self.fk.T == self.t + 1):
+                if (self.t % 100 == 0):
                     self.fk.ssm.fast_slam.plot_data_(self.X)
 
 
